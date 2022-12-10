@@ -8,15 +8,17 @@ use thiserror::Error;
 #[derive(Debug)]
 pub struct Bf {
     map: memmap2::Mmap,
+    meta: Meta,
 }
 
-pub struct OffsetTableEntry {
+#[derive(Debug)]
+pub struct OffsetKeyPair {
     offset: u32,
     key: u32,
 }
 
 #[derive(Debug)]
-struct DirMetaEntry {
+struct Dir {
     first_file_idx: u32,
     first_subdir_idx: u32,
     next_idx: u32,
@@ -26,13 +28,20 @@ struct DirMetaEntry {
 }
 
 #[derive(Debug)]
-struct FileMetaEntry {
+struct File {
     size: u32,
     next_idx: u32,
     prev_idx: u32,
     dir_idx: u32,
     unix_stamp: u32,
     name: String,
+}
+
+#[derive(Debug)]
+struct Meta {
+    offset_key_pairs: Vec<OffsetKeyPair>,
+    dirs: Vec<Dir>,
+    files: Vec<File>,
 }
 
 #[derive(Error, Debug)]
@@ -84,11 +93,8 @@ impl Bf {
         let file_count = LE::read_u32(&map[8..]);
         let dir_count = LE::read_u32(&map[12..]);
         let offset_table_max_size = LE::read_u32(&map[32..]);
-        dbg!(offset_table_max_size);
-        let initial_key = LE::read_u32(&map[40..]);
-        dbg!(initial_key);
+        let _initial_key = LE::read_u32(&map[40..]);
         let offset_table_offset = LE::read_u32(&map[52..]);
-        dbg!(offset_table_offset);
         let mut off = offset_table_offset as usize;
         macro_rules! r_u32 {
             () => {{
@@ -101,7 +107,7 @@ impl Bf {
         for _ in 0..file_count {
             let offset = r_u32!();
             let key = r_u32!();
-            offset_table_entries.push(OffsetTableEntry { offset, key });
+            offset_table_entries.push(OffsetKeyPair { offset, key });
         }
 
         let file_meta_offset = file_meta_offset(offset_table_offset, offset_table_max_size);
@@ -115,7 +121,7 @@ impl Bf {
             let unix_stamp = r_u32!();
             let filename = decode_iso_null_term(&map[off..]);
             off += 64;
-            file_meta_entries.push(FileMetaEntry {
+            file_meta_entries.push(File {
                 size: file_size,
                 next_idx: next,
                 prev_idx: prev,
@@ -133,7 +139,7 @@ impl Bf {
             let prev_idx = r_u32!();
             let parent_idx = r_u32!();
             let dir_name = decode_iso_null_term(&map[off..]);
-            dir_meta_entries.push(DirMetaEntry {
+            dir_meta_entries.push(Dir {
                 first_file_idx,
                 first_subdir_idx,
                 next_idx,
@@ -143,9 +149,14 @@ impl Bf {
             });
             off += 64;
         }
-        dbg!(file_meta_entries);
-        dbg!(dir_meta_entries);
-        Ok(Self { map })
+        Ok(Self {
+            map,
+            meta: Meta {
+                offset_key_pairs: offset_table_entries,
+                dirs: dir_meta_entries,
+                files: file_meta_entries,
+            },
+        })
     }
 }
 
