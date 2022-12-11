@@ -5,7 +5,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use fuser::{FileAttr, FileType, ReplyDirectory};
+use fuser::{FileAttr, FileType};
 use sallybf::Bf;
 
 struct Fs {
@@ -109,11 +109,11 @@ impl fuser::Filesystem for Fs {
         &mut self,
         _req: &fuser::Request<'_>,
         ino: u64,
-        fh: u64,
+        _fh: u64,
         offset: i64,
         size: u32,
-        flags: i32,
-        lock_owner: Option<u64>,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         reply: fuser::ReplyData,
     ) {
         let Some(filedata) = self.bf.get_file_by_inode(ino) else {
