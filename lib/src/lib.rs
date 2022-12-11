@@ -17,8 +17,8 @@ pub struct OffsetKeyPair {
     key: u32,
 }
 
-#[derive(Debug)]
-struct Dir {
+#[derive(Debug, Clone)]
+pub struct Dir {
     first_file_idx: u32,
     first_subdir_idx: u32,
     next_idx: u32,
@@ -27,14 +27,26 @@ struct Dir {
     name: String,
 }
 
-#[derive(Debug)]
-struct File {
+impl Dir {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct File {
     size: u32,
     next_idx: u32,
     prev_idx: u32,
     dir_idx: u32,
     unix_stamp: u32,
     name: String,
+}
+
+impl File {
+    pub fn size(&self) -> u32 {
+        self.size
+    }
 }
 
 #[derive(Debug)]
@@ -115,8 +127,9 @@ impl Bf {
         let mut file_meta_entries = Vec::with_capacity(file_count as usize);
         for _ in 0..file_count {
             let file_size = r_u32!();
-            let next = r_u32!();
+            // Swapped prev/next
             let prev = r_u32!();
+            let next = r_u32!();
             let dir_idx = r_u32!();
             let unix_stamp = r_u32!();
             let filename = decode_iso_null_term(&map[off..]);
@@ -135,8 +148,9 @@ impl Bf {
         for _ in 0..dir_count {
             let first_file_idx = r_u32!();
             let first_subdir_idx = r_u32!();
-            let next_idx = r_u32!();
+            // Swapped prev/next
             let prev_idx = r_u32!();
+            let next_idx = r_u32!();
             let parent_idx = r_u32!();
             let dir_name = decode_iso_null_term(&map[off..]);
             dir_meta_entries.push(Dir {
@@ -157,6 +171,98 @@ impl Bf {
                 files: file_meta_entries,
             },
         })
+    }
+    pub fn read_dir(&self, node: NodeIdx) -> impl Iterator<Item = (NodeIdx, Node)> {
+        let mut dir_entries = vec![];
+        log::debug!("read_dir for node idx {node}");
+        let dir = &self.meta.dirs[node as usize];
+        log::debug!("== read_dir dir Node debug ==");
+        log::debug!("{dir:#?}");
+        log::debug!("== END read_dir dir Node debug ==");
+        // Subdirs
+        let mut idx = dir.first_subdir_idx;
+        loop {
+            if idx == INVALID {
+                break;
+            }
+            let subdir = &self.meta.dirs[idx as usize];
+            dir_entries.push((idx, Node::Dir(subdir.clone())));
+            idx = subdir.next_idx;
+        }
+        // Files
+        idx = dir.first_file_idx;
+        loop {
+            if idx == INVALID {
+                break;
+            }
+            let file = &self.meta.files[idx as usize];
+            dir_entries.push((idx, Node::File(file.clone())));
+            idx = file.next_idx;
+        }
+        log::debug!("{dir_entries:#?}");
+        dir_entries.into_iter()
+    }
+    pub fn lookup_dir_entry(&self, dir_idx: NodeIdx, name: &str) -> Option<(NodeIdx, Node)> {
+        let dir = self.meta.dirs.get(dir_idx as usize)?;
+        log::debug!("Looking up '{name}' inside '{}' ({dir_idx})", dir.name());
+        // Search subdirs
+        let mut idx = dir.first_subdir_idx;
+        loop {
+            if idx == INVALID {
+                break;
+            }
+            let dir = &self.meta.dirs[idx as usize];
+            log::debug!("Comparing '{name}' against {}", dir.name);
+            if dir.name == name {
+                log::debug!("Found dir '{name}', idx {idx}");
+                return Some((idx, Node::Dir(dir.clone())));
+            }
+            idx = dir.next_idx;
+        }
+        // Search files
+        idx = dir.first_file_idx;
+        loop {
+            if idx == INVALID {
+                break;
+            }
+            let file = &self.meta.files[idx as usize];
+            if file.name == name {
+                log::debug!("Found file '{name}', idx {idx}");
+                return Some((idx, Node::File(file.clone())));
+            }
+            idx = file.next_idx;
+        }
+        log::debug!("No such entry: '{name}' inside {dir_idx}");
+        None
+    }
+    pub fn get_file_meta(&self, idx: NodeIdx) -> Option<&File> {
+        self.meta.files.get(idx as usize)
+    }
+    pub fn get_dir_meta(&self, idx: NodeIdx) -> Option<&Dir> {
+        self.meta.dirs.get(idx as usize)
+    }
+    pub fn get_file_data(&self, idx: NodeIdx) -> Option<&[u8]> {
+        let offset = self.meta.offset_key_pairs.get(idx as usize)?.offset as usize;
+        let size = LE::read_u32(&self.map[offset..]);
+        Some(&self.map[offset + 4..offset + 4 + size as usize])
+    }
+}
+
+type NodeIdx = u32;
+const INVALID: NodeIdx = NodeIdx::MAX;
+
+#[derive(Debug)]
+pub enum Node {
+    File(File),
+    Dir(Dir),
+}
+
+impl Node {
+    pub fn name(&self) -> &str {
+        match self {
+            Node::File(f) => &f.name,
+            Node::Dir(d) => &d.name,
+        }
     }
 }
 
