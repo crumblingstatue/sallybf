@@ -59,16 +59,17 @@ impl fuser::Filesystem for Fs {
         };
         log::debug!("getattr node {ino} resolved to {}", node.name());
         log::debug!("{node:#?}");
+        let t = SystemTime::UNIX_EPOCH + node.time();
         reply.attr(
             &Duration::ZERO,
             &FileAttr {
                 ino,
                 size: node.size(),
                 blocks: 0,
-                atime: SystemTime::UNIX_EPOCH,
-                mtime: SystemTime::UNIX_EPOCH,
-                ctime: SystemTime::UNIX_EPOCH,
-                crtime: SystemTime::UNIX_EPOCH,
+                atime: t,
+                mtime: t,
+                ctime: t,
+                crtime: t,
                 kind: node.file_type(),
                 perm: node.perm(),
                 nlink: 0,
@@ -92,7 +93,7 @@ impl fuser::Filesystem for Fs {
             for (i, (node_idx, entry)) in self.bf.read_dir(ino as u32 - 1).enumerate() {
                 let full = reply.add(
                     entry.resolve_inode(node_idx),
-                    dbg!(i as i64 + 1),
+                    i as i64 + 1,
                     entry.file_type(),
                     entry.name(),
                 );
@@ -130,6 +131,7 @@ pub trait BfNodeExt {
     fn perm(&self) -> u16;
     fn resolve_inode(&self, idx: u32) -> u64;
     fn size(&self) -> u64;
+    fn time(&self) -> Duration;
 }
 
 impl BfNodeExt for sallybf::Node {
@@ -160,6 +162,12 @@ impl BfNodeExt for sallybf::Node {
         match self {
             sallybf::Node::File(f) => f.size() as u64,
             sallybf::Node::Dir(_) => 0,
+        }
+    }
+    fn time(&self) -> Duration {
+        match self {
+            sallybf::Node::File(f) => Duration::from_secs(f.unix_stamp.into()),
+            sallybf::Node::Dir(_) => Duration::ZERO,
         }
     }
 }

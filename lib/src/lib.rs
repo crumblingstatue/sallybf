@@ -39,7 +39,7 @@ pub struct File {
     next_idx: u32,
     prev_idx: u32,
     dir_idx: u32,
-    unix_stamp: u32,
+    pub unix_stamp: u32,
     name: String,
 }
 
