@@ -19,10 +19,6 @@ pub struct OffsetKeyPair {
 
 #[derive(Debug, Clone)]
 pub struct Dir {
-    first_file_idx: u32,
-    first_subdir_idx: u32,
-    next_idx: u32,
-    prev_idx: u32,
     parent_idx: u32,
     name: String,
 }
@@ -36,8 +32,8 @@ impl Dir {
 #[derive(Debug, Clone)]
 pub struct File {
     size: u32,
-    next_idx: u32,
-    prev_idx: u32,
+    _next_idx: u32,
+    _prev_idx: u32,
     dir_idx: u32,
     pub unix_stamp: u32,
     name: String,
@@ -136,8 +132,8 @@ impl Bf {
             off += 64;
             file_meta_entries.push(File {
                 size: file_size,
-                next_idx: next,
-                prev_idx: prev,
+                _next_idx: next,
+                _prev_idx: prev,
                 dir_idx,
                 unix_stamp,
                 name: filename,
@@ -145,19 +141,18 @@ impl Bf {
         }
         off = dir_meta_offset(file_meta_offset, offset_table_max_size);
         let mut dir_meta_entries = Vec::with_capacity(dir_count as usize);
-        for _ in 0..dir_count {
-            let first_file_idx = r_u32!();
-            let first_subdir_idx = r_u32!();
+        for n in 0..dir_count {
+            let _first_file_idx = r_u32!();
+            let _first_subdir_idx = r_u32!();
             // Swapped prev/next
-            let prev_idx = r_u32!();
-            let next_idx = r_u32!();
+            let _prev_idx = r_u32!();
+            let _next_idx = r_u32!();
             let parent_idx = r_u32!();
+            if parent_idx == INVALID {
+                log::error!("INVALID PARENT IDX for dir no {n}");
+            }
             let dir_name = decode_iso_null_term(&map[off..]);
             dir_meta_entries.push(Dir {
-                first_file_idx,
-                first_subdir_idx,
-                next_idx,
-                prev_idx,
                 parent_idx,
                 name: dir_name,
             });
@@ -180,59 +175,56 @@ impl Bf {
         log::debug!("{dir:#?}");
         log::debug!("== END read_dir dir Node debug ==");
         // Subdirs
-        let mut idx = dir.first_subdir_idx;
-        loop {
-            if idx == INVALID {
-                break;
-            }
-            let subdir = &self.meta.dirs[idx as usize];
-            dir_entries.push((idx, Node::Dir(subdir.clone())));
-            idx = subdir.next_idx;
+        for (i, dir) in self
+            .meta
+            .dirs
+            .iter()
+            .enumerate()
+            .filter(|(_i, d)| d.parent_idx == node)
+        {
+            dir_entries.push((i as u32, Node::Dir(dir.clone())));
         }
         // Files
-        idx = dir.first_file_idx;
-        loop {
-            if idx == INVALID {
-                break;
-            }
-            let file = &self.meta.files[idx as usize];
-            dir_entries.push((idx, Node::File(file.clone())));
-            idx = file.next_idx;
+        for (i, file) in self
+            .meta
+            .files
+            .iter()
+            .enumerate()
+            .filter(|(_i, f)| f.dir_idx == node)
+        {
+            dir_entries.push((i as u32, Node::File(file.clone())));
         }
-        log::debug!("{dir_entries:#?}");
         dir_entries.into_iter()
     }
-    pub fn lookup_dir_entry(&self, dir_idx: NodeIdx, name: &str) -> Option<(NodeIdx, Node)> {
-        let dir = self.meta.dirs.get(dir_idx as usize)?;
-        log::debug!("Looking up '{name}' inside '{}' ({dir_idx})", dir.name());
+    pub fn lookup_dir_entry(&self, parent_dir_idx: NodeIdx, name: &str) -> Option<(NodeIdx, Node)> {
+        let parent_dir = self.meta.dirs.get(parent_dir_idx as usize)?;
+        log::debug!(
+            "Looking up '{name}' inside '{}' ({parent_dir_idx})",
+            parent_dir.name()
+        );
         // Search subdirs
-        let mut idx = dir.first_subdir_idx;
-        loop {
-            if idx == INVALID {
-                break;
-            }
-            let dir = &self.meta.dirs[idx as usize];
-            log::debug!("Comparing '{name}' against {}", dir.name);
-            if dir.name == name {
-                log::debug!("Found dir '{name}', idx {idx}");
-                return Some((idx, Node::Dir(dir.clone())));
-            }
-            idx = dir.next_idx;
+        if let Some((i, child_dir)) = self
+            .meta
+            .dirs
+            .iter()
+            .enumerate()
+            .find(|(_i, dir)| dir.parent_idx == parent_dir_idx && dir.name == name)
+        {
+            log::debug!("Found dir '{name}', idx {i}");
+            return Some((i as u32, Node::Dir(child_dir.clone())));
         }
         // Search files
-        idx = dir.first_file_idx;
-        loop {
-            if idx == INVALID {
-                break;
-            }
-            let file = &self.meta.files[idx as usize];
-            if file.name == name {
-                log::debug!("Found file '{name}', idx {idx}");
-                return Some((idx, Node::File(file.clone())));
-            }
-            idx = file.next_idx;
+        if let Some((i, f)) = self
+            .meta
+            .files
+            .iter()
+            .enumerate()
+            .find(|(_i, file)| file.dir_idx == parent_dir_idx && file.name == name)
+        {
+            log::debug!("Found dir '{name}', idx {i}");
+            return Some((i as u32, Node::File(f.clone())));
         }
-        log::debug!("No such entry: '{name}' inside {dir_idx}");
+        log::debug!("No such entry: '{name}' inside {parent_dir_idx}");
         None
     }
     pub fn get_file_meta(&self, idx: NodeIdx) -> Option<&File> {
