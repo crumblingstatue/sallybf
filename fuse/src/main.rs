@@ -89,19 +89,23 @@ impl fuser::Filesystem for Fs {
         offset: i64,
         mut reply: fuser::ReplyDirectory,
     ) {
-        if offset == 0 {
-            for (i, (node_idx, entry)) in self.bf.read_dir(ino as u32 - 1).enumerate() {
-                let full = reply.add(
-                    entry.resolve_inode(node_idx),
-                    i as i64 + 1,
-                    entry.file_type(),
-                    entry.name(),
-                );
-                if full {
-                    log::warn!("Full buffer");
-                    reply.ok();
-                    return;
-                }
+        log::trace!("readdir called with offset {offset}");
+        for (i, (node_idx, entry)) in self
+            .bf
+            .read_dir(ino as u32 - 1)
+            .enumerate()
+            .skip(offset as usize)
+        {
+            let full = reply.add(
+                entry.resolve_inode(node_idx),
+                i as i64 + 1,
+                entry.file_type(),
+                entry.name(),
+            );
+            if full {
+                log::warn!("Full buffer");
+                reply.ok();
+                return;
             }
         }
         reply.ok();
