@@ -10,3 +10,5 @@ env_logger = "0.10.0"
 fuser = "0.11.1"
 log = "0.4.17"
 sallybf = {path = "../lib"}
+byteorder = "1.4.3"
+rust-lzo = "0.6.2"

@@ -36,7 +36,7 @@ pub struct File {
     _prev_idx: u32,
     dir_idx: u32,
     pub unix_stamp: u32,
-    name: String,
+    pub name: String,
 }
 
 impl File {

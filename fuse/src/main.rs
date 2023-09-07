@@ -1,11 +1,14 @@
 #![feature(iter_array_chunks)]
 
 use std::{
+    borrow::Cow,
     env,
     time::{Duration, SystemTime},
 };
 
+use byteorder::{ReadBytesExt, LE};
 use fuser::{FileAttr, FileType};
+use rust_lzo::LZOContext;
 use sallybf::Bf;
 
 struct Fs {
@@ -121,13 +124,61 @@ impl fuser::Filesystem for Fs {
         _lock_owner: Option<u64>,
         reply: fuser::ReplyData,
     ) {
-        let Some(filedata) = self.bf.get_file_by_inode(ino) else {
+        let Some((file_meta, file_data)) = self.bf.get_file_by_inode(ino) else {
             reply.error(1);
             return;
         };
-        let end = (offset as usize + size as usize).min(filedata.len());
-        reply.data(&filedata[offset as usize..end]);
+        if file_meta.name.ends_with("bin") && !file_meta.name.starts_with("ff4") {
+            log::info!("Reading .bin file, decompressing");
+            log::info!("Specifically, reading {}", file_meta.name);
+            let uncompressed = decompress_bin(file_data);
+            reply_with_data(offset, size, &uncompressed, reply)
+        } else {
+            reply_with_data(offset, size, file_data, reply);
+        }
     }
+}
+
+fn reply_with_data(offset: i64, size: u32, file_data: &[u8], reply: fuser::ReplyData) {
+    let end = (offset as usize + size as usize).min(file_data.len());
+    let raw_data = &file_data[offset as usize..end];
+    reply.data(raw_data);
+}
+
+fn decompress_bin(data: &[u8]) -> Vec<u8> {
+    let mut decompressed = Vec::new();
+    for block in bin_blocks(data) {
+        decompressed.extend_from_slice(&block);
+    }
+    decompressed
+}
+
+fn bin_blocks(mut src_data: &[u8]) -> impl Iterator<Item = Cow<[u8]>> {
+    std::iter::from_fn(move || {
+        log::info!("Reading bin block");
+        let Ok(decomp_size) = src_data.read_u32::<LE>() else {
+            log::error!("EOF while trying to read decompressed size. Assuming EOF.");
+            return None;
+        };
+        let Ok(comp_size) = src_data.read_u32::<LE>() else {
+            log::error!(
+                "EOF while trying to read compressed size. Something is wrong, but fuck it."
+            );
+            return None;
+        };
+        if decomp_size == 0 {
+            None
+        } else if decomp_size == comp_size {
+            let data_slice = &src_data[..comp_size as usize];
+            src_data = &src_data[comp_size as usize..];
+            Some(Cow::Borrowed(data_slice))
+        } else {
+            let mut out = vec![0; decomp_size as usize];
+            LZOContext::decompress_to_slice(&src_data[..comp_size as usize], &mut out);
+            src_data = &src_data[comp_size as usize..];
+            Some(Cow::Owned(out))
+        }
+    })
 }
 
 pub trait BfNodeExt {
@@ -179,7 +230,7 @@ impl BfNodeExt for sallybf::Node {
 pub trait BfExt {
     fn resolve_inode(&self, inode: u64) -> InodeResolvedIdx;
     fn lookup_inode(&self, inode: u64) -> Option<sallybf::Node>;
-    fn get_file_by_inode(&self, inode: u64) -> Option<&[u8]>;
+    fn get_file_by_inode(&self, inode: u64) -> Option<(&sallybf::File, &[u8])>;
 }
 
 pub enum InodeResolvedIdx {
@@ -212,9 +263,11 @@ impl BfExt for Bf {
         log::debug!("Lookup result: {result:#?}");
         result
     }
-    fn get_file_by_inode(&self, inode: u64) -> Option<&[u8]> {
+    fn get_file_by_inode(&self, inode: u64) -> Option<(&sallybf::File, &[u8])> {
         let idx = inode.checked_sub(FILE_INODE_BEGIN)? as u32;
-        self.get_file_data(idx)
+        let meta = self.get_file_meta(idx)?;
+        let data = self.get_file_data(idx)?;
+        Some((meta, data))
     }
 }
 
