@@ -54,7 +54,13 @@ impl fuser::Filesystem for Fs {
             None => reply.error(1),
         }
     }
-    fn getattr(&mut self, _req: &fuser::Request<'_>, ino: u64, reply: fuser::ReplyAttr) {
+    fn getattr(
+        &mut self,
+        _req: &fuser::Request<'_>,
+        ino: u64,
+        _fh: Option<u64>,
+        reply: fuser::ReplyAttr,
+    ) {
         let Some(node) = self.bf.lookup_inode(ino) else {
             log::debug!("getattr inode {ino} Not found");
             reply.error(1);
