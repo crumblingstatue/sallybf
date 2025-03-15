@@ -1,3 +1,3 @@
 [workspace]
 members = ["lib", "fuse"]
-resolver = "2"
+resolver = "3"

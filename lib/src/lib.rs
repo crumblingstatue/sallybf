@@ -86,7 +86,7 @@ impl Bf {
     /// memory safety issues if the underlying file is changed while it's active.
     pub unsafe fn open<P: AsRef<Path>>(path: P) -> Result<Bf, OpenError> {
         let f = std::fs::File::open(path)?;
-        let map = memmap2::Mmap::map(&f)?;
+        let map = unsafe { memmap2::Mmap::map(&f)? };
         let magic = &map[0..4];
         if magic != b"BIG\0" {
             return Err(HeaderParseError::MagicMismatch {
