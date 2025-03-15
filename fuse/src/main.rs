@@ -6,7 +6,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use byteorder::{ReadBytesExt, LE};
+use byteorder::{LE, ReadBytesExt};
 use fuser::{FileAttr, FileType};
 use rust_lzo::LZOContext;
 use sallybf::Bf;

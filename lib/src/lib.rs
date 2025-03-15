@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, LE};
 use std::path::Path;
 
-use encoding::{all::ISO_8859_1, Encoding};
+use encoding::{Encoding, all::ISO_8859_1};
 use thiserror::Error;
 
 /// Handle to a BG&E BigFile
